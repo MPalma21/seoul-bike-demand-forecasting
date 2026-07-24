@@ -4891,6 +4891,11 @@
       "Version": "0.6.2",
       "Source": "Repository"
     },
+    "ranger": {
+      "Package": "ranger",
+      "Version": "0.18.0",
+      "Source": "Repository"
+    },
     "yaml": {
       "Package": "yaml",
       "Version": "2.3.12",
