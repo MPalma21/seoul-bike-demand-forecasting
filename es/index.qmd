@@ -449,12 +449,14 @@ holdout_metrics <- bind_rows(
 ) |>
   select(model, .metric, .estimate)
 
-holdout_metrics |>
+metrics_table <- holdout_metrics |>
   pivot_wider(
     names_from = .metric,
     values_from = .estimate
   ) |>
-  arrange(rmse) |>
+  arrange(rmse)
+
+metrics_table |>
   kable(digits = 2)
 ```
 
@@ -567,4 +569,10 @@ ggplot(forest_diagnostics, aes(x = .pred, y = residual)) +
 
 ## Conclusión
 
-El código visible demuestra evaluación temporal, controles de fuga, dos estrategias de ajuste, modelado no lineal, métricas interpretables, importancia y residuos. Consulta la [versión en inglés](../index.qmd).
+- El random forest es el mejor modelo final, con RMSE de `r sprintf("%.2f", metrics_table$rmse[metrics_table$model == "Random forest"])`, MAE de `r sprintf("%.2f", metrics_table$mae[metrics_table$model == "Random forest"])` y R² de `r sprintf("%.2f", metrics_table$rsq_trad[metrics_table$model == "Random forest"])`.
+- Frente a la línea base reduce el RMSE en `r sprintf("%.1f", 100 * (metrics_table$rmse[metrics_table$model == "Línea base"] - metrics_table$rmse[metrics_table$model == "Random forest"]) / metrics_table$rmse[metrics_table$model == "Línea base"])`% y el MAE en `r sprintf("%.1f", 100 * (metrics_table$mae[metrics_table$model == "Línea base"] - metrics_table$mae[metrics_table$model == "Random forest"]) / metrics_table$mae[metrics_table$model == "Línea base"])`%.
+- El bosque seleccionado utiliza un valor `mtry` de `r best_forest$mtry[[1]]` y un valor `min_n` de `r best_forest$min_n[[1]]`; Elastic Net se comporta como lasso (`mixture` = `r best_elastic$mixture[[1]]`) con penalización `r format(best_elastic$penalty[[1]], digits = 3, scientific = TRUE)`.
+- Las variables líderes por importancia de permutación son `r paste(variable_importance$variable[1:5], collapse = ", ")`, lo que confirma que la hora y los efectos meteorológicos no lineales concentran la capacidad predictiva.
+- La dispersión de residuos aumenta en periodos de alta demanda. El modelo funciona como referencia para planeación urbana, pero necesita calibración de picos, reentrenamiento continuo y variables por estación para uso operativo.
+
+Consulta la [versión en inglés](../index.qmd).

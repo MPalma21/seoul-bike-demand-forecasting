@@ -449,12 +449,14 @@ holdout_metrics <- bind_rows(
 ) |>
   select(model, .metric, .estimate)
 
-holdout_metrics |>
+metrics_table <- holdout_metrics |>
   pivot_wider(
     names_from = .metric,
     values_from = .estimate
   ) |>
-  arrange(rmse) |>
+  arrange(rmse)
+
+metrics_table |>
   kable(digits = 2)
 ```
 
@@ -567,4 +569,10 @@ ggplot(forest_diagnostics, aes(x = .pred, y = residual)) +
 
 ## Conclusion
 
-The visible code demonstrates temporal evaluation, leakage controls, two tuning strategies, nonlinear modeling, interpretable metrics, importance, and residual analysis. See the [Spanish version](es/index.qmd).
+- Random forest is the strongest holdout model, with RMSE `r sprintf("%.2f", metrics_table$rmse[metrics_table$model == "Random forest"])`, MAE `r sprintf("%.2f", metrics_table$mae[metrics_table$model == "Random forest"])`, and R² `r sprintf("%.2f", metrics_table$rsq_trad[metrics_table$model == "Random forest"])`.
+- Relative to the mean baseline, it reduces RMSE by `r sprintf("%.1f", 100 * (metrics_table$rmse[metrics_table$model == "Mean baseline"] - metrics_table$rmse[metrics_table$model == "Random forest"]) / metrics_table$rmse[metrics_table$model == "Mean baseline"])`% and MAE by `r sprintf("%.1f", 100 * (metrics_table$mae[metrics_table$model == "Mean baseline"] - metrics_table$mae[metrics_table$model == "Random forest"]) / metrics_table$mae[metrics_table$model == "Mean baseline"])`%.
+- The selected forest uses an `mtry` value of `r best_forest$mtry[[1]]` and a `min_n` value of `r best_forest$min_n[[1]]`; the selected Elastic Net is effectively lasso (`mixture` = `r best_elastic$mixture[[1]]`) with penalty `r format(best_elastic$penalty[[1]], digits = 3, scientific = TRUE)`.
+- The leading permutation-importance variables are `r paste(variable_importance$variable[1:5], collapse = ", ")`, confirming that intraday timing and nonlinear weather effects drive most predictive performance.
+- Residual dispersion increases during high-demand hours, so the model is suitable as a citywide planning benchmark but still requires peak-demand calibration, rolling retraining, and station-level features for operational deployment.
+
+See the [Spanish version](es/index.qmd).
