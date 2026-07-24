@@ -78,7 +78,98 @@ bikes |>
   kable(digits = 1)
 ```
 
-## Explorar demanda por hora y estación
+## Análisis exploratorio
+
+La variable objetivo conserva unidades reales. Su distribución asimétrica muestra que las horas de demanda alta son menos frecuentes, pero importantes para la operación.
+
+```{r}
+#| label: rental-distribution
+#| fig-alt: "Histograma del número horario de bicicletas alquiladas."
+ggplot(bikes, aes(x = rented_bike_count)) +
+  geom_histogram(
+    bins = 40,
+    fill = "#2A9D8F",
+    color = "white"
+  ) +
+  labs(
+    title = "La demanda horaria está sesgada hacia la derecha",
+    x = "Bicicletas alquiladas",
+    y = "Horas"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+Los promedios diarios exponen la estacionalidad y los periodos sin operación.
+
+```{r}
+#| label: daily-demand
+#| fig-alt: "Demanda diaria promedio durante el periodo observado."
+daily_demand <- bikes |>
+  group_by(date) |>
+  summarise(
+    average_demand = mean(rented_bike_count),
+    .groups = "drop"
+  )
+
+ggplot(daily_demand, aes(x = date, y = average_demand)) +
+  geom_line(color = "#457B9D", alpha = 0.75) +
+  geom_smooth(
+    se = FALSE,
+    color = "#E76F51",
+    linewidth = 0.9
+  ) +
+  labs(
+    title = "La demanda diaria cambia durante el año",
+    x = "Fecha",
+    y = "Bicicletas alquiladas en promedio"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+Las dispersiones muestreadas permiten observar relaciones meteorológicas no lineales antes de introducir el random forest.
+
+```{r}
+#| label: weather-relationships
+#| fig-alt: "Dispersiones facetadas que relacionan demanda con temperatura, humedad, radiación y lluvia."
+weather_relationships <- bikes |>
+  filter(functioning_day == "Yes") |>
+  slice(seq(1, n(), by = 4)) |>
+  select(
+    rented_bike_count,
+    temperature_c,
+    humidity_pct,
+    solar_radiation_mj_m2,
+    rainfall_mm
+  ) |>
+  pivot_longer(
+    cols = -rented_bike_count,
+    names_to = "predictor",
+    values_to = "value"
+  )
+
+ggplot(
+  weather_relationships,
+  aes(x = value, y = rented_bike_count)
+) +
+  geom_point(alpha = 0.2, color = "#457B9D") +
+  geom_smooth(se = FALSE, color = "#E76F51") +
+  facet_wrap(
+    vars(predictor),
+    scales = "free_x",
+    ncol = 2
+  ) +
+  labs(
+    title = "Las relaciones meteorológicas son no lineales",
+    x = NULL,
+    y = "Bicicletas alquiladas"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+## Demanda por hora y estación
 
 ```{r}
 #| label: hourly-demand-data
@@ -280,6 +371,44 @@ forest_predictions <- bind_cols(
 )
 ```
 
+La superficie de ajuste muestra cómo la complejidad de los árboles y el tamaño mínimo de nodo afectan el error de validación.
+
+```{r}
+#| label: forest-tuning
+#| fig-alt: "Combinaciones de ajuste del random forest coloreadas por RMSE de validación."
+forest_tuning <- forest_results |>
+  collect_metrics() |>
+  filter(.metric == "rmse")
+
+ggplot(
+  forest_tuning,
+  aes(
+    x = mtry,
+    y = min_n,
+    color = mean,
+    size = mean
+  )
+) +
+  geom_point(alpha = 0.9) +
+  scale_color_viridis_c(
+    option = "C",
+    direction = -1
+  ) +
+  scale_size(
+    range = c(3, 7),
+    guide = "none"
+  ) +
+  labs(
+    title = "Superficie de ajuste del random forest",
+    subtitle = "Un RMSE menor indica mejor resultado de validación",
+    x = "Predictores evaluados por división (mtry)",
+    y = "Observaciones mínimas por nodo",
+    color = "RMSE"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
 ## Rendimiento en la prueba final
 
 ```{r}
@@ -330,6 +459,55 @@ holdout_metrics |>
 ```
 
 RMSE y MAE se mantienen interpretables como bicicletas alquiladas.
+
+## Observado frente a predicho
+
+```{r}
+#| label: observed-predicted
+#| fig-alt: "Gráficos facetados de valores observados y predichos para cuatro modelos."
+prediction_comparison <- bind_rows(
+  baseline_predictions |>
+    mutate(model = "Línea base"),
+  linear_predictions |>
+    mutate(model = "Regresión lineal"),
+  elastic_predictions |>
+    mutate(model = "Elastic Net"),
+  forest_predictions |>
+    mutate(model = "Random forest")
+) |>
+  mutate(
+    model = factor(
+      model,
+      levels = c(
+        "Línea base",
+        "Regresión lineal",
+        "Elastic Net",
+        "Random forest"
+      )
+    )
+  )
+
+ggplot(
+  prediction_comparison,
+  aes(x = rented_bike_count, y = .pred)
+) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "#E76F51",
+    linewidth = 0.8
+  ) +
+  geom_point(alpha = 0.25, color = "#2A9D8F") +
+  facet_wrap(vars(model), ncol = 2) +
+  coord_equal() +
+  labs(
+    title = "Demanda observada y predicha en horas futuras no vistas",
+    x = "Bicicletas observadas",
+    y = "Bicicletas predichas"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
 
 ## Importancia de variables
 
