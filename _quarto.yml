@@ -1,0 +1,31 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "Seoul Bike Demand Prediction"
+  navbar:
+    left:
+      - href: index.qmd
+        text: English
+      - href: es/index.qmd
+        text: Español
+    right:
+      - icon: github
+        href: https://github.com/MPalma21/seoul-bike-demand-prediction
+  page-footer:
+    center: "Miguelangel Palma Rojas · Reproducible machine learning"
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-fold: true
+    code-tools: true
+    smooth-scroll: true
+
+execute:
+  freeze: auto
+  warning: false
+  message: false
+

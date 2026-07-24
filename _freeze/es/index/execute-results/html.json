@@ -1,0 +1,17 @@
+{
+  "hash": "9ac3bfaff27ee50bd19c52bcd191cd1b",
+  "result": {
+    "engine": "knitr",
+    "markdown": "---\ntitle: \"Predicción de demanda de bicicletas en Seúl\"\nsubtitle: \"Comparación temporal con tidymodels\"\nauthor: \"Miguelangel Palma Rojas\"\ndate: last-modified\nlang: es\n---\n\n\n\n## Objetivo de negocio\n\nLos pronósticos horarios ayudan a posicionar bicicletas antes de los picos y reducen estaciones vacías o saturadas. La reconstrucción conserva el conteo original sin normalizar para que los errores se interpreten en número de bicicletas.\n\n## Datos y prevención de fuga\n\nEl snapshot de UCI contiene 8760 registros horarios. Se crean variables de día de semana y fin de semana. Los periodos no operativos se excluyen porque sus ceros representan cierre y no demanda.\n\nEl 80% más antiguo se utiliza para entrenamiento y ajuste; el 20% más reciente es la prueba final. La fecha completa se excluye del modelo, pero se conservan variables meteorológicas y de calendario válidas.\n\n\n::: {.cell}\n\n```{.r .cell-code}\nplot_hourly_demand(bikes, \"es\")\n```\n\n::: {.cell-output-display}\n![](index_files/figure-html/unnamed-chunk-1-1.png){fig-alt='Líneas de demanda promedio de bicicletas por hora para cada estación del año.' width=672}\n:::\n:::\n\n\n## Modelos\n\n- **Promedio** como baseline mínimo.\n- **Regresión lineal** para efectos aditivos.\n- **Elastic Net** con ajuste de penalización y mezcla L1/L2.\n- **Random forest** para relaciones no lineales e interacciones.\n\nLos predictores numéricos se normalizan dentro de cada workflow y las categorías se codifican mediante la receta, evitando aprender del periodo final.\n\n## Rendimiento final\n\n\n::: {.cell}\n\n```{.r .cell-code}\nmodel_results$metrics |>\n  tidyr::pivot_wider(names_from = .metric, values_from = .estimate) |>\n  arrange(rmse) |>\n  knitr::kable(digits = 2)\n```\n\n::: {.cell-output-display}\n\n\n|model             |    mae|   rmse|   rsq|\n|:-----------------|------:|------:|-----:|\n|Random forest     | 246.34| 348.17|  0.66|\n|Linear regression | 319.56| 432.95|  0.48|\n|Elastic Net       | 317.66| 433.05|  0.48|\n|Mean baseline     | 491.51| 634.41| -0.12|\n\n\n:::\n:::\n\n\nRMSE y MAE se expresan en bicicletas alquiladas. R² utiliza la definición tradicional sobre el holdout.\n\n## Variables predictivas principales\n\n\n::: {.cell}\n\n```{.r .cell-code}\nplot_variable_importance(model_results$importance, \"es\")\n```\n\n::: {.cell-output-display}\n![](index_files/figure-html/unnamed-chunk-3-1.png){fig-alt='Barras horizontales con los predictores más importantes del random forest.' width=672}\n:::\n:::\n\n\nLa importancia por permutación describe contribución predictiva, no causalidad. Las variables correlacionadas pueden compartir importancia.\n\n## Interpretación operativa\n\nEl modelo puede apoyar redistribución y personal, pero una implementación necesitaría datos recientes, monitoreo de deriva y observaciones por estación. Los totales de ciudad no optimizan inventario por estación.\n\n## Conclusión\n\nEl análisis corregido elimina el error original de métricas, evita variables dummy redundantes, preserva unidades reales y compara modelos transparentes y no lineales sobre observaciones futuras.\n\n",
+    "supporting": [
+      "index_files"
+    ],
+    "filters": [
+      "rmarkdown/pagebreak.lua"
+    ],
+    "includes": {},
+    "engineDependencies": {},
+    "preserve": {},
+    "postProcess": true
+  }
+}

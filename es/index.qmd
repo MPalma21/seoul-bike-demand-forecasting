@@ -1,0 +1,68 @@
+---
+title: "Predicción de demanda de bicicletas en Seúl"
+subtitle: "Comparación temporal con tidymodels"
+author: "Miguelangel Palma Rojas"
+date: last-modified
+lang: es
+---
+
+```{r}
+#| label: setup
+#| include: false
+source(here::here("R", "analysis.R"))
+bikes <- read_bike_snapshot()
+model_results <- fit_bike_models(bikes)
+```
+
+## Objetivo de negocio
+
+Los pronósticos horarios ayudan a posicionar bicicletas antes de los picos y reducen estaciones vacías o saturadas. La reconstrucción conserva el conteo original sin normalizar para que los errores se interpreten en número de bicicletas.
+
+## Datos y prevención de fuga
+
+El snapshot de UCI contiene `r nrow(bikes)` registros horarios. Se crean variables de día de semana y fin de semana. Los periodos no operativos se excluyen porque sus ceros representan cierre y no demanda.
+
+El 80% más antiguo se utiliza para entrenamiento y ajuste; el 20% más reciente es la prueba final. La fecha completa se excluye del modelo, pero se conservan variables meteorológicas y de calendario válidas.
+
+```{r}
+#| fig-alt: "Líneas de demanda promedio de bicicletas por hora para cada estación del año."
+plot_hourly_demand(bikes, "es")
+```
+
+## Modelos
+
+- **Promedio** como baseline mínimo.
+- **Regresión lineal** para efectos aditivos.
+- **Elastic Net** con ajuste de penalización y mezcla L1/L2.
+- **Random forest** para relaciones no lineales e interacciones.
+
+Los predictores numéricos se normalizan dentro de cada workflow y las categorías se codifican mediante la receta, evitando aprender del periodo final.
+
+## Rendimiento final
+
+```{r}
+model_results$metrics |>
+  tidyr::pivot_wider(names_from = .metric, values_from = .estimate) |>
+  arrange(rmse) |>
+  knitr::kable(digits = 2)
+```
+
+RMSE y MAE se expresan en bicicletas alquiladas. R² utiliza la definición tradicional sobre el holdout.
+
+## Variables predictivas principales
+
+```{r}
+#| fig-alt: "Barras horizontales con los predictores más importantes del random forest."
+plot_variable_importance(model_results$importance, "es")
+```
+
+La importancia por permutación describe contribución predictiva, no causalidad. Las variables correlacionadas pueden compartir importancia.
+
+## Interpretación operativa
+
+El modelo puede apoyar redistribución y personal, pero una implementación necesitaría datos recientes, monitoreo de deriva y observaciones por estación. Los totales de ciudad no optimizan inventario por estación.
+
+## Conclusión
+
+El análisis corregido elimina el error original de métricas, evita variables dummy redundantes, preserva unidades reales y compara modelos transparentes y no lineales sobre observaciones futuras.
+

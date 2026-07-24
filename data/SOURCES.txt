@@ -1,0 +1,4 @@
+snapshot_date: 2026-07-23
+source: https://archive.ics.uci.edu/static/public/560/seoul+bike+sharing+demand.zip
+doi: https://doi.org/10.24432/C5F62R
+license: CC BY 4.0
