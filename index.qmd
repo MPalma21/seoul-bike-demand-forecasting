@@ -6,63 +6,387 @@ date: last-modified
 lang: en
 ---
 
-```{r}
-#| label: setup
-#| include: false
-source(here::here("R", "analysis.R"))
-bikes <- read_bike_snapshot()
-model_results <- fit_bike_models(bikes)
-```
-
 ## Business objective
 
-Hourly demand forecasts help operators position bicycles before peaks and reduce empty or saturated stations. This reconstruction uses the original, unnormalized rental count so model errors remain interpretable as bicycles.
+Hourly forecasts help operators position bicycles before demand peaks. This notebook displays the full workflow: validation, feature typing, temporal splitting, preprocessing, tuning, holdout metrics, variable importance, and residual diagnostics.
 
-## Data and leakage controls
-
-The UCI snapshot contains `r nrow(bikes)` hourly records. Date-derived weekday and weekend features are created before modeling. Non-functioning periods are excluded because zero rentals during closure do not represent customer demand.
-
-The earliest 80% of observations train and tune the models; the latest 20% form a final holdout. The date itself is excluded from the recipe, while valid calendar and weather information remains available.
+## Load packages
 
 ```{r}
-#| fig-alt: "Line chart of average bike rental demand by hour for each season."
-plot_hourly_demand(bikes, "en")
+#| label: packages
+#| message: false
+#| warning: false
+library(dplyr)
+library(ggplot2)
+library(here)
+library(knitr)
+library(readr)
+library(tibble)
+library(tidymodels)
+library(tidyr)
 ```
 
-## Models
+## Read and validate the snapshot
 
-- **Mean baseline** establishes the minimum benchmark.
-- **Linear regression** estimates additive effects.
-- **Elastic Net** tunes both regularization strength and the L1/L2 mixture.
-- **Random forest** captures nonlinearities and interactions without manually creating polynomial terms.
+```{r}
+#| label: read-data
+bikes <- read_csv(
+  here("data", "seoul_bike_snapshot.csv"),
+  show_col_types = FALSE,
+  col_types = cols(date = col_date())
+) |>
+  mutate(
+    weekday = factor(weekday),
+    season = factor(season),
+    holiday = factor(holiday),
+    functioning_day = factor(functioning_day),
+    is_weekend = factor(is_weekend)
+  ) |>
+  arrange(date, hour)
 
-Numeric predictors are normalized inside each workflow. Categorical variables are encoded through the recipe, preventing preprocessing from learning from the final test period.
+required_columns <- c(
+  "date", "rented_bike_count", "hour", "temperature_c",
+  "humidity_pct", "wind_speed_ms", "visibility_10m",
+  "dew_point_c", "solar_radiation_mj_m2", "rainfall_mm",
+  "snowfall_cm", "season", "holiday", "functioning_day",
+  "weekday", "is_weekend"
+)
+
+missing_columns <- setdiff(required_columns, names(bikes))
+
+if (length(missing_columns) > 0) {
+  stop(
+    "Bike data is missing columns: ",
+    paste(missing_columns, collapse = ", ")
+  )
+}
+
+stopifnot(
+  !any(bikes$rented_bike_count < 0, na.rm = TRUE),
+  anyDuplicated(bikes[c("date", "hour")]) == 0,
+  all(bikes$hour %in% 0:23)
+)
+
+bikes |>
+  summarise(
+    observations = n(),
+    first_date = min(date),
+    last_date = max(date),
+    average_rentals = mean(rented_bike_count),
+    maximum_rentals = max(rented_bike_count)
+  ) |>
+  kable(digits = 1)
+```
+
+## Explore demand by hour and season
+
+```{r}
+#| label: hourly-demand-data
+hourly_demand <- bikes |>
+  filter(functioning_day == "Yes") |>
+  group_by(hour, season) |>
+  summarise(
+    average_demand = mean(rented_bike_count),
+    .groups = "drop"
+  )
+```
+
+```{r}
+#| label: hourly-demand-chart
+#| fig-alt: "Line chart of average bike rental demand by hour for each season."
+ggplot(
+  hourly_demand,
+  aes(x = hour, y = average_demand, color = season)
+) +
+  geom_line(linewidth = 1) +
+  scale_color_viridis_d(end = 0.85) +
+  scale_x_continuous(breaks = seq(0, 23, 3)) +
+  labs(
+    title = "Demand changes by hour and season",
+    x = "Hour",
+    y = "Average rented bikes",
+    color = "Season"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+```
+
+## Define leakage-safe modeling data
+
+Closure periods are excluded because their zero counts represent unavailable service, not customer demand. The raw date and redundant weekend flag are removed; weekday remains available.
+
+```{r}
+#| label: modeling-data
+modeling_data <- bikes |>
+  filter(functioning_day == "Yes") |>
+  select(-functioning_day, -is_weekend)
+
+set.seed(2026)
+
+bike_split <- initial_time_split(modeling_data, prop = 0.8)
+training_data <- training(bike_split)
+testing_data <- testing(bike_split)
+resamples <- vfold_cv(training_data, v = 3)
+
+tibble(
+  partition = c("Training and tuning", "Final test"),
+  observations = c(nrow(training_data), nrow(testing_data)),
+  first_date = c(min(training_data$date), min(testing_data$date)),
+  last_date = c(max(training_data$date), max(testing_data$date))
+) |>
+  kable()
+```
+
+## Mean baseline
+
+```{r}
+#| label: baseline-model
+baseline_predictions <- testing_data |>
+  transmute(
+    rented_bike_count,
+    .pred = mean(training_data$rented_bike_count)
+  )
+```
+
+## Preprocessing recipe
+
+The date is excluded from the formula. Categorical levels are handled before dummy encoding, zero-variance columns are removed, and numeric normalization is estimated only from analysis folds.
+
+```{r}
+#| label: preprocessing-recipe
+bike_recipe <- recipe(
+  rented_bike_count ~
+    hour +
+    temperature_c +
+    humidity_pct +
+    wind_speed_ms +
+    visibility_10m +
+    dew_point_c +
+    solar_radiation_mj_m2 +
+    rainfall_mm +
+    snowfall_cm +
+    season +
+    holiday +
+    weekday,
+  data = training_data
+) |>
+  step_unknown(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors(), one_hot = FALSE) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_numeric_predictors())
+```
+
+## Linear regression
+
+```{r}
+#| label: linear-model
+linear_workflow <- workflow() |>
+  add_recipe(bike_recipe) |>
+  add_model(
+    linear_reg() |>
+      set_engine("lm")
+  )
+
+linear_fit <- fit(linear_workflow, data = training_data)
+
+linear_predictions <- bind_cols(
+  testing_data |> select(rented_bike_count),
+  predict(linear_fit, new_data = testing_data)
+)
+```
+
+## Elastic Net
+
+```{r}
+#| label: elastic-net-model
+elastic_workflow <- workflow() |>
+  add_recipe(bike_recipe) |>
+  add_model(
+    linear_reg(
+      penalty = tune(),
+      mixture = tune()
+    ) |>
+      set_engine("glmnet")
+  )
+
+elastic_grid <- grid_space_filling(
+  penalty(range = c(-5, 1)),
+  mixture(),
+  size = 6
+)
+
+elastic_results <- tune_grid(
+  elastic_workflow,
+  resamples = resamples,
+  grid = elastic_grid,
+  metrics = metric_set(rmse, mae, rsq_trad)
+)
+
+best_elastic <- select_best(elastic_results, metric = "rmse")
+best_elastic |> kable(digits = 5)
+
+elastic_fit <- elastic_workflow |>
+  finalize_workflow(best_elastic) |>
+  fit(data = training_data)
+
+elastic_predictions <- bind_cols(
+  testing_data |> select(rented_bike_count),
+  predict(elastic_fit, new_data = testing_data)
+)
+```
+
+## Random forest
+
+```{r}
+#| label: random-forest-model
+forest_workflow <- workflow() |>
+  add_recipe(bike_recipe) |>
+  add_model(
+    rand_forest(
+      mtry = tune(),
+      min_n = tune(),
+      trees = 300
+    ) |>
+      set_engine("ranger", importance = "permutation") |>
+      set_mode("regression")
+  )
+
+forest_grid <- grid_space_filling(
+  mtry(range = c(3L, 12L)),
+  min_n(range = c(5L, 35L)),
+  size = 6
+)
+
+forest_results <- tune_grid(
+  forest_workflow,
+  resamples = resamples,
+  grid = forest_grid,
+  metrics = metric_set(rmse, mae, rsq_trad)
+)
+
+best_forest <- select_best(forest_results, metric = "rmse")
+best_forest |> kable()
+
+forest_fit <- forest_workflow |>
+  finalize_workflow(best_forest) |>
+  fit(data = training_data)
+
+forest_predictions <- bind_cols(
+  testing_data |> select(rented_bike_count),
+  predict(forest_fit, new_data = testing_data)
+)
+```
 
 ## Final holdout performance
 
 ```{r}
-model_results$metrics |>
-  tidyr::pivot_wider(names_from = .metric, values_from = .estimate) |>
+#| label: holdout-metrics
+baseline_metrics <- bind_rows(
+  rmse(baseline_predictions, rented_bike_count, .pred),
+  mae(baseline_predictions, rented_bike_count, .pred),
+  rsq_trad(baseline_predictions, rented_bike_count, .pred)
+) |>
+  mutate(model = "Mean baseline")
+
+linear_metrics <- bind_rows(
+  rmse(linear_predictions, rented_bike_count, .pred),
+  mae(linear_predictions, rented_bike_count, .pred),
+  rsq_trad(linear_predictions, rented_bike_count, .pred)
+) |>
+  mutate(model = "Linear regression")
+
+elastic_metrics <- bind_rows(
+  rmse(elastic_predictions, rented_bike_count, .pred),
+  mae(elastic_predictions, rented_bike_count, .pred),
+  rsq_trad(elastic_predictions, rented_bike_count, .pred)
+) |>
+  mutate(model = "Elastic Net")
+
+forest_metrics <- bind_rows(
+  rmse(forest_predictions, rented_bike_count, .pred),
+  mae(forest_predictions, rented_bike_count, .pred),
+  rsq_trad(forest_predictions, rented_bike_count, .pred)
+) |>
+  mutate(model = "Random forest")
+
+holdout_metrics <- bind_rows(
+  baseline_metrics,
+  linear_metrics,
+  elastic_metrics,
+  forest_metrics
+) |>
+  select(model, .metric, .estimate)
+
+holdout_metrics |>
+  pivot_wider(
+    names_from = .metric,
+    values_from = .estimate
+  ) |>
   arrange(rmse) |>
-  knitr::kable(digits = 2)
+  kable(digits = 2)
 ```
 
-RMSE and MAE are measured in rented bicycles. R² uses the traditional holdout definition relative to the test-set variation.
+RMSE and MAE remain interpretable as rented bicycles.
 
-## What drives predictions?
+## Variable importance
 
 ```{r}
-#| fig-alt: "Horizontal bars ranking the most important random forest predictors."
-plot_variable_importance(model_results$importance, "en")
+#| label: variable-importance-data
+forest_engine <- extract_fit_engine(forest_fit)
+
+variable_importance <- enframe(
+  forest_engine$variable.importance,
+  name = "variable",
+  value = "importance"
+) |>
+  arrange(desc(importance)) |>
+  slice_head(n = 12)
 ```
 
-Permutation importance describes predictive contribution, not causal impact. Correlated weather and calendar variables can share importance.
+```{r}
+#| label: variable-importance-chart
+#| fig-alt: "Horizontal bars ranking the most important random forest predictors."
+ggplot(
+  variable_importance,
+  aes(x = importance, y = reorder(variable, importance))
+) +
+  geom_col(fill = "#2A9D8F") +
+  labs(
+    title = "Random forest permutation importance",
+    x = "Importance",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+```
 
-## Operational interpretation
+## Residual diagnosis
 
-The model can support staffing and redistribution planning, but deployment would require recent observations, monitoring for seasonal drift, and station-level data. Citywide hourly totals cannot optimize individual station inventory by themselves.
+```{r}
+#| label: residual-chart
+#| fig-alt: "Residuals plotted against random forest predictions for the final test period."
+forest_diagnostics <- forest_predictions |>
+  mutate(residual = rented_bike_count - .pred)
+
+ggplot(forest_diagnostics, aes(x = .pred, y = residual)) +
+  geom_hline(yintercept = 0, color = "#555555") +
+  geom_point(alpha = 0.35, color = "#2A9D8F") +
+  geom_smooth(se = FALSE, color = "#E76F51") +
+  labs(
+    title = "Random forest residuals on unseen observations",
+    x = "Predicted rented bikes",
+    y = "Observed minus predicted"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
 
 ## Conclusion
 
-The rebuilt analysis removes the original train/test metric error, avoids redundant dummy variables, preserves real rental units, and compares transparent and nonlinear models on unseen future observations.
-
+The visible code demonstrates temporal evaluation, leakage controls, two tuning strategies, nonlinear modeling, interpretable metrics, importance, and residual analysis. See the [Spanish version](es/index.qmd).
