@@ -4912,10 +4912,10 @@
       "checksum": "662ecf378d290224c6e46257db0861a7"
     },
     "README.md": {
-      "checksum": "dcafe93fbc722f82b18a406bc7c7045b"
+      "checksum": "a59ee41509cd8a2692fcfc4dd84030f4"
     },
     "_freeze/es/index/execute-results/html.json": {
-      "checksum": "9af7369056a32ee89e8bb8e0e41e8799"
+      "checksum": "5706f5531c31222eae63f9ab13a96c2d"
     },
     "_freeze/es/index/figure-html/comparacion-modelos-1.png": {
       "checksum": "744a66369c22349dbc5ba9c4b4fae22a"
@@ -4933,7 +4933,7 @@
       "checksum": "9b09c43c39dc9b929cd519373a81b35a"
     },
     "_freeze/index/execute-results/html.json": {
-      "checksum": "3704d35373e95d324b0cbd477c0d68d5"
+      "checksum": "828ea1800c5a65c35e67721b623c144b"
     },
     "_freeze/index/figure-html/demand-rhythm-1.png": {
       "checksum": "c5571d81422ca071dbf0ca2720d87584"
@@ -4954,7 +4954,7 @@
       "checksum": "722242f7b6e0fa3b8d25070388a5c826"
     },
     "_quarto.yml": {
-      "checksum": "a2129b54d2222ccdff95d74df62b9172"
+      "checksum": "09801354bfd45aef92ce515fa3af1612"
     },
     "assets/code-tools-fix.html": {
       "checksum": "0cb7444da06f8a2970b12c04dd39a66e"
@@ -4984,10 +4984,10 @@
       "checksum": "ccb73b2cce59aef3c2d417827705e205"
     },
     "es/index.qmd": {
-      "checksum": "de74902a26266547d61c12dcb4132695"
+      "checksum": "dbff70fadb3e6ed48c788e53860b2953"
     },
     "index.qmd": {
-      "checksum": "941da6844950c75d4afab89e9d30cf04"
+      "checksum": "701f21ed18651de0969068a2964ea2a1"
     },
     "renv.lock": {
       "checksum": "aee46ed74e4a7dcf573efd6eb74b621d"
