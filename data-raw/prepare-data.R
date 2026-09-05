@@ -20,19 +20,27 @@ if (length(source_file) != 1) {
   stop("Expected exactly one SeoulBikeData.csv file")
 }
 
-raw <- read.csv(
+raw <- read_delim(
   source_file,
-  check.names = FALSE,
-  stringsAsFactors = FALSE,
-  fileEncoding = "latin1"
+  delim = ",",
+  locale = locale(encoding = "latin1"),
+  show_col_types = FALSE,
+  trim_ws = TRUE
 )
 expected_columns <- c(
-  "Date", "Rented Bike Count", "Hour", "Temperature(°C)", "Humidity(%)",
-  "Wind speed (m/s)", "Visibility (10m)", "Dew point temperature(°C)",
+  "Date", "Rented Bike Count", "Hour", "Temperature", "Humidity(%)",
+  "Wind speed (m/s)", "Visibility (10m)", "Dew point temperature",
   "Solar Radiation (MJ/m2)", "Rainfall(mm)", "Snowfall (cm)", "Seasons",
   "Holiday", "Functioning Day"
 )
-if (!identical(names(raw), expected_columns)) {
+observed_columns <- names(raw)
+observed_columns[[4]] <- if (grepl("^Temperature\\(.*C\\)$", observed_columns[[4]])) {
+  "Temperature"
+} else observed_columns[[4]]
+observed_columns[[8]] <- if (grepl("^Dew point temperature\\(.*C\\)$", observed_columns[[8]])) {
+  "Dew point temperature"
+} else observed_columns[[8]]
+if (!identical(observed_columns, expected_columns)) {
   stop("The UCI Seoul Bike schema has changed")
 }
 
@@ -45,9 +53,14 @@ names(raw) <- c(
 bikes <- as_tibble(raw) |>
   mutate(
     date = as.Date(date, format = "%d/%m/%Y"),
-    weekday = factor(weekdays(date), levels = weekdays(as.Date("2026-07-20") + 0:6)),
+    weekday_number = as.POSIXlt(date)$wday,
+    weekday = factor(
+      c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")[weekday_number + 1L],
+      levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    ),
     is_weekend = weekday %in% c("Saturday", "Sunday")
   ) |>
+  select(-weekday_number) |>
   arrange(date, hour)
 
 if (
@@ -60,7 +73,11 @@ if (
 }
 
 dir.create("data", showWarnings = FALSE, recursive = TRUE)
-write_csv(bikes, file.path("data", "seoul_bike_snapshot.csv"), na = "")
+snapshot_path <- file.path("data", "seoul_bike_snapshot.csv")
+temporary_snapshot <- tempfile(tmpdir = "data", fileext = ".csv")
+write_csv(bikes, temporary_snapshot, na = "")
+if (file.exists(snapshot_path)) invisible(file.remove(snapshot_path))
+if (!file.rename(temporary_snapshot, snapshot_path)) stop("Could not atomically replace snapshot")
 writeLines(
   c(
     paste("snapshot_date:", Sys.Date()),
@@ -69,5 +86,11 @@ writeLines(
     "license: CC BY 4.0"
   ),
   file.path("data", "SOURCES.txt")
+)
+
+checksum <- digest::digest(snapshot_path, algo = "sha256", file = TRUE)
+write_csv(
+  tibble(file = snapshot_path, sha256 = checksum, rows = nrow(bikes), columns = ncol(bikes)),
+  file.path("data", "checksums.csv")
 )
 
