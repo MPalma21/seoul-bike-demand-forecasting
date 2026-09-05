@@ -3,27 +3,44 @@ project:
   output-dir: _site
 
 website:
-  title: "Seoul Bike Demand Prediction"
+  title: "Seoul Bike Demand Forecasting"
+  repo-url: "https://github.com/MPalma21/seoul-bike-demand-forecasting"
+  repo-actions: [source, issue]
+  favicon: assets/favicon.svg
   navbar:
+    background: dark
+    title: "Seoul Mobility Lab"
     left:
       - href: index.qmd
-        text: English
+        text: Case study
       - href: es/index.qmd
         text: Español
+      - href: docs/methodology.md
+        text: Methodology
+      - href: docs/model-card.md
+        text: Model card
     right:
       - icon: github
-        href: https://github.com/MPalma21/seoul-bike-demand-prediction
+        href: https://github.com/MPalma21/seoul-bike-demand-forecasting
   page-footer:
-    center: "Miguelangel Palma Rojas · Reproducible machine learning"
+    left: "Seoul Bike Demand Forecasting"
+    right: "Miguelangel Palma Rojas · Reproducible ML"
 
 format:
   html:
-    theme: cosmo
+    theme:
+      light: cosmo
+      dark: darkly
+    css: assets/styles.css
     toc: true
-    code-fold: true
+    toc-depth: 3
+    code-fold: false
     code-tools: true
+    code-line-numbers: true
+    code-overflow: scroll
     include-after-body: assets/code-tools-fix.html
     smooth-scroll: true
+    link-external-newwindow: true
 
 execute:
   freeze: auto

@@ -1,0 +1,25 @@
+:root {
+  --seoul-navy: #102a43;
+  --seoul-blue: #1677a6;
+  --seoul-teal: #2a9d8f;
+  --seoul-coral: #e76f51;
+}
+
+.navbar { box-shadow: 0 2px 16px rgba(0, 0, 0, .18); }
+.quarto-title-banner {
+  background: linear-gradient(125deg, #102a43 0%, #1677a6 65%, #2a9d8f 100%);
+  color: white;
+  padding-top: 4rem;
+  padding-bottom: 4rem;
+}
+.quarto-title-banner .subtitle, .quarto-title-banner .quarto-title-meta { color: #e8f5f2; }
+h2 { border-bottom: 2px solid color-mix(in srgb, var(--seoul-teal) 35%, transparent); padding-bottom: .35rem; }
+.callout { border-radius: .75rem; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin: 1.5rem 0 2rem; }
+.metric-card { border-top: 4px solid var(--seoul-teal); border-radius: .7rem; padding: 1.1rem; background: color-mix(in srgb, var(--bs-body-bg) 94%, var(--seoul-blue)); box-shadow: 0 5px 18px rgba(16, 42, 67, .10); }
+.metric-card strong { display: block; font-size: 1.55rem; color: var(--seoul-coral); }
+.metric-card span { font-size: .82rem; text-transform: uppercase; letter-spacing: .06em; }
+pre.sourceCode { border-left: 4px solid var(--seoul-teal); border-radius: .45rem; }
+table { font-size: .92rem; }
+.cell-output-display { overflow-x: auto; }
+.figure-caption { color: var(--bs-secondary-color); }

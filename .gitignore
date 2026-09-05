@@ -1,11 +1,16 @@
 /.quarto/
 /_site/
+/site_libs/
+/**/*.rmarkdown
+/**/*_files/
+/docs/*.html
 /.Rproj.user/
 /.Rhistory
 /.RData
 /*.zip
 /renv/library/
 /renv/staging/
+/.r-lib*/
 
 
 **/*.quarto_ipynb

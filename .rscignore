@@ -1,0 +1,11 @@
+.git
+.github
+.quarto
+.r-lib-46
+_site
+site_libs
+*.rmarkdown
+*_files
+docs/*.html
+tests
+data-raw
