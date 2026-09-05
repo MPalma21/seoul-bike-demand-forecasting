@@ -46,12 +46,11 @@ Rscript data-raw/prepare-data.R
 
 | Path | Purpose |
 |---|---|
-| `R/analysis.R` | Validation, feature engineering, temporal resampling, models, metrics, and charts |
 | `data/` | Versioned modeling snapshot, provenance, and checksums |
 | `data-raw/` | Repeatable UCI ingestion and validation |
-| `index.qmd`, `es/index.qmd` | Visible-code English and Spanish case studies |
+| `index.qmd`, `es/index.qmd` | Self-contained English and Spanish notebooks with the complete visible workflow |
 | `docs/` | Methodology, model card, and data dictionary |
-| `tests/` | Data-contract and modeling tests |
+| `tests/` | Data-contract and notebook-independence tests |
 | `manifest.json` | Posit Connect Cloud deployment manifest |
 
 ## Data and responsible use
