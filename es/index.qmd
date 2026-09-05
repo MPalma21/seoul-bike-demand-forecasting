@@ -29,7 +29,7 @@ set.seed(2026)
 El snapshot gobernado contiene una fila por fecha y hora. Antes de modelar, el notebook comprueba el esquema completo, datos faltantes, rangos físicos, alquileres no negativos y llaves fecha-hora únicas.
 
 ```{r}
-#| label: lectura-validacion
+#| label: lectura-datos
 required_columns <- c(
   "date", "rented_bike_count", "hour", "temperature_c",
   "humidity_pct", "wind_speed_ms", "visibility_10m", "dew_point_c",
@@ -53,7 +53,10 @@ bikes <- read_csv(
     across(c(season, holiday, functioning_day, is_weekend), factor)
   ) |>
   arrange(date, hour)
+```
 
+```{r}
+#| label: validacion-datos
 stopifnot(
   setequal(names(bikes), required_columns),
   !anyNA(bikes),
@@ -63,7 +66,10 @@ stopifnot(
   between(max(bikes$humidity_pct), 0, 100),
   nrow(distinct(bikes, date, hour)) == nrow(bikes)
 )
+```
 
+```{r}
+#| label: perfil-datos
 data_profile <- bikes |>
   summarise(
     observations = n(),
@@ -131,7 +137,10 @@ model_data <- bikes |>
     snowfall_cm
   ) |>
   arrange(date, hour)
+```
 
+```{r}
+#| label: holdout-futuro
 test_days <- ceiling(n_distinct(model_data$date) * 0.20)
 
 first_test_date <- model_data |>
@@ -161,7 +170,7 @@ tibble(
 Los hiperparámetros se seleccionan únicamente dentro del entrenamiento. Cada ventana de validación de 28 días ocurre después de un entrenamiento expansivo y una separación de un día.
 
 ```{r}
-#| label: remuestreo-temporal
+#| label: configuracion-ventanas-temporales
 training_dates <- training_data |>
   distinct(date) |>
   arrange(date) |>
@@ -178,7 +187,10 @@ analysis_ends <- round(seq(
 
 assessment_starts <- analysis_ends + gap_days + 1L
 assessment_ends <- assessment_starts + assessment_days - 1L
+```
 
+```{r}
+#| label: divisiones-temporales-01-02
 split_01 <- make_splits(
   list(
     analysis = which(training_data$date %in% training_dates[seq_len(analysis_ends[[1]])]),
@@ -194,7 +206,10 @@ split_02 <- make_splits(
   ),
   training_data
 )
+```
 
+```{r}
+#| label: divisiones-temporales-03-04
 split_03 <- make_splits(
   list(
     analysis = which(training_data$date %in% training_dates[seq_len(analysis_ends[[3]])]),
@@ -210,14 +225,20 @@ split_04 <- make_splits(
   ),
   training_data
 )
+```
 
+```{r}
+#| label: remuestreos-temporales
 temporal_splits <- list(split_01, split_02, split_03, split_04)
 
 temporal_resamples <- manual_rset(
   temporal_splits,
   paste0("Ventana", str_pad(seq_along(temporal_splits), 2, pad = "0"))
 )
+```
 
+```{r}
+#| label: resumen-ventanas-temporales
 window_summary <- tibble(
   ventana = temporal_resamples$id,
   inicio_entrenamiento = c(
@@ -235,16 +256,23 @@ window_summary <- tibble(
   fin_validacion = c(
     max(assessment(split_01)$date), max(assessment(split_02)$date),
     max(assessment(split_03)$date), max(assessment(split_04)$date)
-  ),
-  filas_entrenamiento = c(
-    nrow(analysis(split_01)), nrow(analysis(split_02)),
-    nrow(analysis(split_03)), nrow(analysis(split_04))
-  ),
-  filas_validacion = c(
-    nrow(assessment(split_01)), nrow(assessment(split_02)),
-    nrow(assessment(split_03)), nrow(assessment(split_04))
   )
 )
+```
+
+```{r}
+#| label: tabla-ventanas-temporales
+window_summary <- window_summary |>
+  mutate(
+    filas_entrenamiento = c(
+    nrow(analysis(split_01)), nrow(analysis(split_02)),
+    nrow(analysis(split_03)), nrow(analysis(split_04))
+    ),
+    filas_validacion = c(
+      nrow(assessment(split_01)), nrow(assessment(split_02)),
+      nrow(assessment(split_03)), nrow(assessment(split_04))
+    )
+  )
 
 window_summary |>
   kable(caption = "Ventanas expansivas de validación")
@@ -265,18 +293,36 @@ bike_recipe <- recipe(rented_bike_count ~ ., data = training_data) |>
   step_zv(all_predictors()) |>
   step_lincomb(all_numeric_predictors()) |>
   step_normalize(all_numeric_predictors())
+```
 
+### Regresión lineal
+
+```{r}
+#| label: workflow-lineal
+#| results: hide
 linear_workflow <- workflow() |>
   add_recipe(bike_recipe) |>
   add_model(linear_reg() |> set_engine("lm"))
+```
 
+### Elastic Net
+
+```{r}
+#| label: workflow-elastic
+#| results: hide
 elastic_workflow <- workflow() |>
   add_recipe(bike_recipe) |>
   add_model(
     linear_reg(penalty = tune(), mixture = tune()) |>
       set_engine("glmnet")
   )
+```
 
+### Bosque aleatorio
+
+```{r}
+#| label: workflow-bosque
+#| results: hide
 forest_workflow <- workflow() |>
   add_recipe(bike_recipe) |>
   add_model(
@@ -296,10 +342,16 @@ Aquí se muestra únicamente el código fuente. La impresión interna y extensa 
 ## Ajuste y modelos finales
 
 ```{r}
-#| label: ajuste-modelos
+#| label: configuracion-ajuste
 #| results: hide
 tuning_metrics <- metric_set(rmse, mae)
+```
 
+### Ajuste de Elastic Net
+
+```{r}
+#| label: ajuste-elastic
+#| results: hide
 set.seed(2027)
 elastic_grid <- grid_space_filling(
   penalty(range = c(-5, 0)),
@@ -316,7 +368,13 @@ elastic_tuning <- tune_grid(
 )
 
 best_elastic <- select_best(elastic_tuning, metric = "rmse")
+```
 
+### Ajuste del bosque aleatorio
+
+```{r}
+#| label: ajuste-bosque
+#| results: hide
 set.seed(2028)
 forest_grid <- grid_space_filling(
   mtry(range = c(4L, 18L)),
@@ -333,11 +391,27 @@ forest_tuning <- tune_grid(
 )
 
 best_forest <- select_best(forest_tuning, metric = "rmse")
+```
 
+### Ajustes finales
+
+```{r}
+#| label: ajuste-final-lineal
+#| results: hide
 linear_fit <- fit(linear_workflow, training_data)
+```
+
+```{r}
+#| label: ajuste-final-elastic
+#| results: hide
 elastic_fit <- elastic_workflow |>
   finalize_workflow(best_elastic) |>
   fit(training_data)
+```
+
+```{r}
+#| label: ajuste-final-bosque
+#| results: hide
 set.seed(2029)
 forest_fit <- forest_workflow |>
   finalize_workflow(best_forest) |>
@@ -349,7 +423,7 @@ forest_fit <- forest_workflow |>
 El baseline promedia la demanda histórica por día y hora. Si no existe una combinación, usa el promedio por hora y luego el promedio global del entrenamiento.
 
 ```{r}
-#| label: predicciones-metricas
+#| label: predicciones-linea-base
 calendar_average <- training_data |>
   summarise(calendar_average = mean(rented_bike_count), .by = c(hour, weekday))
 
@@ -370,22 +444,42 @@ calendar_predictions <- testing_data |>
     ),
     model = "Baseline de calendario"
   )
+```
 
+### Predicciones de la regresión lineal
+
+```{r}
+#| label: predicciones-lineales
 linear_predictions <- testing_data |>
   select(date, hour, rented_bike_count) |>
   bind_cols(predict(linear_fit, new_data = testing_data)) |>
   mutate(.pred = pmax(0, .pred), model = "Regresión lineal")
+```
 
+### Predicciones de Elastic Net
+
+```{r}
+#| label: predicciones-elastic
 elastic_predictions <- testing_data |>
   select(date, hour, rented_bike_count) |>
   bind_cols(predict(elastic_fit, new_data = testing_data)) |>
   mutate(.pred = pmax(0, .pred), model = "Elastic Net")
+```
 
+### Predicciones del bosque aleatorio
+
+```{r}
+#| label: predicciones-bosque
 forest_predictions <- testing_data |>
   select(date, hour, rented_bike_count) |>
   bind_cols(predict(forest_fit, new_data = testing_data)) |>
   mutate(.pred = pmax(0, .pred), model = "Random forest")
+```
 
+### Métricas del holdout
+
+```{r}
+#| label: metricas-holdout
 predictions <- bind_rows(
   calendar_predictions,
   linear_predictions,
@@ -398,7 +492,10 @@ peak_threshold <- quantile(
   probs = 0.90,
   names = FALSE
 )
+```
 
+```{r}
+#| label: calculo-metricas-holdout
 model_metrics <- predictions |>
   summarise(
     rmse = sqrt(mean((rented_bike_count - .pred)^2)),
@@ -414,7 +511,10 @@ model_metrics <- predictions |>
     .by = model
   ) |>
   arrange(rmse)
+```
 
+```{r}
+#| label: resumen-resultados-holdout
 leader <- model_metrics |>
   slice_min(rmse, n = 1)
 
