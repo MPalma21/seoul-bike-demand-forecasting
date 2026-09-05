@@ -17,6 +17,7 @@ test_that("published notebooks are self-contained tidyverse workflows", {
     notebook <- readr::read_file(path)
     expect_match(notebook, "library\\(tidyverse\\)")
     expect_match(notebook, "library\\(tidymodels\\)")
+    expect_match(notebook, "library\\(xgboost\\)")
     expect_false(grepl(forbidden_calls, notebook))
     expect_match(notebook, "#\\| results: hide")
 
@@ -28,5 +29,6 @@ test_that("published notebooks are self-contained tidyverse workflows", {
     expect_match(notebook, "label: .*linear")
     expect_match(notebook, "label: .*elastic")
     expect_match(notebook, "label: .*(forest|bosque)")
+    expect_match(notebook, "label: .*boost")
   }
 })

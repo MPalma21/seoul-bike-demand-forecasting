@@ -18,6 +18,7 @@ This notebook is intentionally self-contained. Every transformation, split, mode
 library(tidyverse)
 library(tidymodels)
 library(ranger)
+library(xgboost)
 library(knitr)
 
 tidymodels_prefer()
@@ -137,6 +138,23 @@ model_data <- bikes |>
     snowfall_cm
   ) |>
   arrange(date, hour)
+```
+
+The nonlinear candidates also receive cyclic time signals and compact weather-event indicators. These are deterministic transformations of fields already available at prediction time.
+
+```{r}
+#| label: nonlinear-features
+model_data <- model_data |>
+  mutate(
+    hour_sin = sin(2 * pi * as.numeric(as.character(hour)) / 24),
+    hour_cos = cos(2 * pi * as.numeric(as.character(hour)) / 24),
+    year_day_sin = sin(2 * pi * as.numeric(format(date, "%j")) / 365.25),
+    year_day_cos = cos(2 * pi * as.numeric(format(date, "%j")) / 365.25),
+    temperature_humidity = temperature_c * humidity_pct / 100,
+    daylight = factor(solar_radiation_mj_m2 > 0),
+    rain_event = factor(rainfall_mm > 0),
+    snow_event = factor(snowfall_cm > 0)
+  )
 ```
 
 ```{r}
@@ -337,6 +355,23 @@ forest_workflow <- workflow() |>
   )
 ```
 
+### Gradient boosting
+
+```{r}
+#| label: boost-workflow
+#| results: hide
+boost_workflow <- workflow() |>
+  add_recipe(bike_recipe) |>
+  add_model(
+    boost_tree(
+      trees = tune(), tree_depth = tune(), learn_rate = tune(),
+      loss_reduction = tune(), min_n = tune(), sample_size = tune()
+    ) |>
+      set_engine("xgboost", nthread = 1, objective = "reg:squarederror") |>
+      set_mode("regression")
+  )
+```
+
 Only the source code is shown here. The verbose internal printout of the recipe and workflow is intentionally suppressed because it adds no analytical value.
 
 ## Tuning and final fits
@@ -393,6 +428,61 @@ forest_tuning <- tune_grid(
 best_forest <- select_best(forest_tuning, metric = "rmse")
 ```
 
+### Gradient boosting tuning
+
+```{r}
+#| label: boost-tuning
+#| results: hide
+set.seed(2030)
+boost_grid <- grid_space_filling(
+  trees(range = c(400L, 1400L)),
+  tree_depth(range = c(3L, 10L)),
+  learn_rate(range = c(-3.0, -0.7)),
+  loss_reduction(range = c(-8, 1)),
+  min_n(range = c(2L, 30L)),
+  sample_prop(range = c(0.65, 1.0)),
+  size = 16
+)
+
+boost_tuning <- tune_grid(
+  boost_workflow, resamples = temporal_resamples, grid = boost_grid,
+  metrics = tuning_metrics, control = control_grid(allow_par = FALSE)
+)
+
+best_boost <- select_best(boost_tuning, metric = "rmse")
+```
+
+### Out-of-sample calibration
+
+The booster is calibrated with predictions from the expanding validation windows. This corrects systematic shrinkage without learning from the final holdout.
+
+```{r}
+#| label: boost-validation-predictions
+#| results: hide
+final_boost_workflow <- boost_workflow |>
+  finalize_workflow(best_boost)
+
+boost_validation <- fit_resamples(
+  final_boost_workflow,
+  resamples = temporal_resamples,
+  metrics = tuning_metrics,
+  control = control_resamples(save_pred = TRUE, allow_par = FALSE)
+)
+
+validation_predictions <- collect_predictions(boost_validation)
+```
+
+```{r}
+#| label: boost-calibration
+calibration_fit <- linear_reg() |>
+  set_engine("lm") |>
+  fit(rented_bike_count ~ .pred, data = validation_predictions)
+
+tidy(calibration_fit) |>
+  select(term, estimate) |>
+  kable(digits = 3, caption = "Out-of-sample calibration coefficients")
+```
+
 ### Final model fits
 
 ```{r}
@@ -415,6 +505,13 @@ elastic_fit <- elastic_workflow |>
 set.seed(2029)
 forest_fit <- forest_workflow |>
   finalize_workflow(best_forest) |>
+  fit(training_data)
+```
+
+```{r}
+#| label: boost-final-fit
+#| results: hide
+boost_fit <- final_boost_workflow |>
   fit(training_data)
 ```
 
@@ -476,6 +573,29 @@ forest_predictions <- testing_data |>
   mutate(.pred = pmax(0, .pred), model = "Random forest")
 ```
 
+### Calibrated gradient boosting predictions
+
+```{r}
+#| label: boost-raw-predictions
+raw_boost_predictions <- testing_data |>
+  select(date, hour, rented_bike_count) |>
+  bind_cols(predict(boost_fit, new_data = testing_data)) |>
+  rename(raw_prediction = .pred)
+```
+
+```{r}
+#| label: boost-calibrated-predictions
+boost_predictions <- raw_boost_predictions |>
+  bind_cols(
+    predict(
+      calibration_fit,
+      new_data = transmute(raw_boost_predictions, .pred = raw_prediction)
+    )
+  ) |>
+  mutate(.pred = pmax(0, .pred), model = "Calibrated XGBoost") |>
+  select(-raw_prediction)
+```
+
 ### Holdout metrics
 
 ```{r}
@@ -484,7 +604,8 @@ predictions <- bind_rows(
   calendar_predictions,
   linear_predictions,
   elastic_predictions,
-  forest_predictions
+  forest_predictions,
+  boost_predictions
 )
 
 peak_threshold <- quantile(
@@ -557,7 +678,7 @@ model_metrics |>
 
 ::: {.callout-important}
 ## Decision takeaway
-Use the winning model as a planning signal, not an autonomous dispatch rule. It materially improves the calendar benchmark, but its negative bias and larger peak error call for an operational safety buffer.
+Use the winning model as a planning signal, not an autonomous dispatch rule. Calibration sharply improves peak tracking and leaves only modest positive bias, while the remaining peak error still calls for an operational safety buffer.
 :::
 
 ```{r}
@@ -590,7 +711,7 @@ predictions |>
   geom_line(linewidth = 0.75) +
   scale_color_manual(values = c(observed = "#264653", predicted = "#E76F51")) +
   labs(
-    title = str_c("Observed and predicted demand — ", winning_model),
+    title = str_c("Observed and predicted demand - ", winning_model),
     x = NULL, y = "Bikes", color = NULL
   ) +
   theme_minimal(base_size = 12) +
@@ -623,23 +744,24 @@ predictions |>
 
 ```{r}
 #| label: feature-importance
-#| fig-cap: "Permutation importance describes predictive contribution, not causality."
-variable_importance <- forest_fit |>
-  extract_fit_engine() |>
-  pluck("variable.importance") |>
-  enframe(name = "variable", value = "importance") |>
+#| fig-cap: "Gain importance describes predictive contribution, not causality."
+boost_engine <- extract_fit_engine(boost_fit)
+
+variable_importance <- xgb.importance(model = boost_engine) |>
+  as_tibble() |>
+  transmute(variable = Feature, importance = Gain) |>
   arrange(desc(importance)) |>
   slice_head(n = 12)
 
 variable_importance |>
   ggplot(aes(importance, reorder(variable, importance))) +
   geom_col(fill = "#2A9D8F") +
-  labs(title = "Random forest permutation importance", x = "Importance", y = NULL) +
+  labs(title = "XGBoost gain importance", x = "Share of model gain", y = NULL) +
   theme_minimal(base_size = 12) +
   theme(plot.title = element_text(face = "bold"), panel.grid.major.y = element_blank())
 ```
 
-Temperature, trend, moisture conditions, solar radiation, and commute-hour indicators carry much of the signal. This does not make them causal levers; it makes them useful forecasting inputs.
+The importance ranking describes how the winning booster distributes predictive gain. It does not make any feature a causal lever.
 
 ## From forecast to action
 

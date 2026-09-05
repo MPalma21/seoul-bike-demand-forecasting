@@ -13,7 +13,7 @@ Planning signal for hourly aggregate bicycle demand on functioning days in Seoul
 
 ## Training and evaluation
 
-One year of hourly UCI observations (December 2017–November 2018). The latest 20% of dates forms the final holdout. Hyperparameters are selected using expanding temporal validation with a one-day gap. The published site calculates the current metrics from the committed snapshot.
+One year of hourly UCI observations (December 2017–November 2018). The latest 20% of dates forms the final holdout. Hyperparameters and the XGBoost calibration are estimated using expanding temporal validation with a one-day gap. The published site calculates the current metrics from the committed snapshot.
 
 ## Key risks
 
