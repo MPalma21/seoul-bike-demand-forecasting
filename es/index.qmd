@@ -1,578 +1,150 @@
 ---
-title: "Predicción de demanda de bicicletas en Seúl"
-subtitle: "Comparación temporal con tidymodels"
+title: "Pronóstico horario de bicicletas en Seúl"
+subtitle: "Un caso operativo sin fuga temporal y con referencias interpretables"
 author: "Miguelangel Palma Rojas"
 date: last-modified
 lang: es
+description: "Flujo de forecasting para apoyar el rebalanceo de bicicletas, evaluado sobre un holdout estrictamente futuro."
 ---
 
-## Objetivo de negocio
-
-Los pronósticos horarios ayudan a posicionar bicicletas antes de los picos. Este notebook muestra el flujo completo: validación, tipado de variables, partición temporal, preprocesamiento, ajuste, métricas finales, importancia y diagnóstico de residuos.
-
-## Cargar paquetes
-
 ```{r}
-#| label: packages
-#| message: false
-#| warning: false
-library(dplyr)
-library(ggplot2)
-library(here)
+#| label: setup-es
+#| include: false
+source(here::here("R", "analysis.R"))
 library(knitr)
-library(readr)
-library(tibble)
-library(tidymodels)
-library(tidyr)
+bikes <- read_bike_snapshot()
+results <- fit_bike_models(bikes, seed = 2026)
+profile <- bike_data_profile(bikes)
+leader <- results$metrics |> slice_min(rmse, n = 1)
+baseline_rmse <- results$metrics |> filter(model == "Calendar baseline") |> pull(rmse)
+improvement <- 100 * (baseline_rmse - leader$rmse) / baseline_rmse
 ```
 
-## Leer y validar el snapshot
+La demanda horaria no es solamente un problema predictivo. Es una decisión operativa: cuántas bicicletas deben estar disponibles, dónde habrá presión y cuánta incertidumbre persiste durante las horas pico.
+
+::: {.metric-grid}
+::: {.metric-card}
+<strong>`r leader$model`</strong>
+<span>Mejor modelo final</span>
+:::
+::: {.metric-card}
+<strong>`r sprintf("%.1f", leader$rmse)` bicicletas</strong>
+<span>RMSE en holdout</span>
+:::
+::: {.metric-card}
+<strong>`r sprintf("%.1f%%", improvement)`</strong>
+<span>Mejora frente al baseline</span>
+:::
+::: {.metric-card}
+<strong>`r sprintf("%.0f", leader$peak_mae)` bicicletas</strong>
+<span>MAE en demanda pico</span>
+:::
+:::
+
+::: {.callout-important}
+## Decisión principal
+El modelo ganador sirve como señal de planeación, no como regla autónoma de despacho. Mejora la referencia de calendario, pero su sesgo negativo y mayor error en picos exigen un margen operativo de seguridad.
+:::
+
+## Contrato y calidad de datos
+
+El snapshot versionado contiene `r format(profile$observations, big.mark = ".", decimal.mark = ",")` observaciones horarias entre `r profile$first_date` y `r profile$last_date`. Antes de modelar se validan esquema, completitud, rangos físicos, alquileres no negativos y llaves fecha-hora únicas.
 
 ```{r}
-#| label: read-data
-bikes <- read_csv(
-  here("data", "seoul_bike_snapshot.csv"),
-  show_col_types = FALSE,
-  col_types = cols(date = col_date())
-) |>
-  mutate(
-    weekday = factor(weekday),
-    season = factor(season),
-    holiday = factor(holiday),
-    functioning_day = factor(functioning_day),
-    is_weekend = factor(is_weekend)
-  ) |>
-  arrange(date, hour)
+#| label: inspeccion-datos
+bikes <- read_bike_snapshot()
+bike_data_profile(bikes) |>
+  kable(digits = 1, caption = "Perfil validado del snapshot")
+```
 
-required_columns <- c(
-  "date", "rented_bike_count", "hour", "temperature_c",
-  "humidity_pct", "wind_speed_ms", "visibility_10m",
-  "dew_point_c", "solar_radiation_mj_m2", "rainfall_mm",
-  "snowfall_cm", "season", "holiday", "functioning_day",
-  "weekday", "is_weekend"
+```{r}
+#| label: ritmo-demanda
+#| fig-cap: "Alquileres promedio por día y hora durante días operativos."
+plot_demand_heatmap(bikes, "es")
+```
+
+## Diseño del pronóstico
+
+El 20% final de las fechas completas permanece intacto hasta la comparación definitiva. Los hiperparámetros se eligen con ventanas temporales expansivas; cada validación ocurre después de su entrenamiento y existe una separación de un día.
+
+```{r}
+#| label: particion-temporal
+model_data <- prepare_modeling_data(bikes)
+partition <- temporal_partition(model_data, test_fraction = 0.20)
+resamples <- temporal_resamples(
+  partition$training,
+  folds = 4,
+  assessment_days = 28,
+  gap_days = 1
 )
-
-missing_columns <- setdiff(required_columns, names(bikes))
-
-if (length(missing_columns) > 0) {
-  stop(
-    "Faltan columnas de bicicletas: ",
-    paste(missing_columns, collapse = ", ")
-  )
-}
-
-stopifnot(
-  !any(bikes$rented_bike_count < 0, na.rm = TRUE),
-  anyDuplicated(bikes[c("date", "hour")]) == 0,
-  all(bikes$hour %in% 0:23)
-)
-
-bikes |>
-  summarise(
-    observaciones = n(),
-    primera_fecha = min(date),
-    ultima_fecha = max(date),
-    alquiler_promedio = mean(rented_bike_count),
-    alquiler_maximo = max(rented_bike_count)
-  ) |>
-  kable(digits = 1)
+temporal_window_summary(list(resamples = resamples)) |>
+  kable(caption = "Ventanas expansivas de validación")
 ```
 
-## Análisis exploratorio
+La receta identifica la fecha, codifica las señales categóricas, elimina columnas sin varianza o linealmente dependientes y normaliza predictores numéricos. Se comparan cuatro candidatos auditables: baseline por día-hora, regresión lineal, Elastic Net y random forest.
 
-La variable objetivo conserva unidades reales. Su distribución asimétrica muestra que las horas de demanda alta son menos frecuentes, pero importantes para la operación.
-
-```{r}
-#| label: rental-distribution
-#| fig-alt: "Histograma del número horario de bicicletas alquiladas."
-ggplot(bikes, aes(x = rented_bike_count)) +
-  geom_histogram(
-    bins = 40,
-    fill = "#2A9D8F",
-    color = "white"
-  ) +
-  labs(
-    title = "La demanda horaria está sesgada hacia la derecha",
-    x = "Bicicletas alquiladas",
-    y = "Horas"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold"))
-```
-
-Los promedios diarios exponen la estacionalidad y los periodos sin operación.
+Semillas fijas independientes controlan cada grilla de búsqueda y el motor de random forest, de modo que ambas ediciones reproducen el mismo resultado.
 
 ```{r}
-#| label: daily-demand
-#| fig-alt: "Demanda diaria promedio durante el periodo observado."
-daily_demand <- bikes |>
-  group_by(date) |>
-  summarise(
-    average_demand = mean(rented_bike_count),
-    .groups = "drop"
-  )
+#| label: receta-modelado
+recipe <- bike_recipe(partition$training)
 
-ggplot(daily_demand, aes(x = date, y = average_demand)) +
-  geom_line(color = "#457B9D", alpha = 0.75) +
-  geom_smooth(
-    se = FALSE,
-    color = "#E76F51",
-    linewidth = 0.9
-  ) +
-  labs(
-    title = "La demanda diaria cambia durante el año",
-    x = "Fecha",
-    y = "Bicicletas alquiladas en promedio"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold"))
-```
-
-Las dispersiones muestreadas permiten observar relaciones meteorológicas no lineales antes de introducir el random forest.
-
-```{r}
-#| label: weather-relationships
-#| fig-alt: "Dispersiones facetadas que relacionan demanda con temperatura, humedad, radiación y lluvia."
-weather_relationships <- bikes |>
-  filter(functioning_day == "Yes") |>
-  slice(seq(1, n(), by = 4)) |>
-  select(
-    rented_bike_count,
-    temperature_c,
-    humidity_pct,
-    solar_radiation_mj_m2,
-    rainfall_mm
-  ) |>
-  pivot_longer(
-    cols = -rented_bike_count,
-    names_to = "predictor",
-    values_to = "value"
-  )
-
-ggplot(
-  weather_relationships,
-  aes(x = value, y = rented_bike_count)
-) +
-  geom_point(alpha = 0.2, color = "#457B9D") +
-  geom_smooth(se = FALSE, color = "#E76F51") +
-  facet_wrap(
-    vars(predictor),
-    scales = "free_x",
-    ncol = 2
-  ) +
-  labs(
-    title = "Las relaciones meteorológicas son no lineales",
-    x = NULL,
-    y = "Bicicletas alquiladas"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold"))
-```
-
-## Demanda por hora y estación
-
-```{r}
-#| label: hourly-demand-data
-hourly_demand <- bikes |>
-  filter(functioning_day == "Yes") |>
-  group_by(hour, season) |>
-  summarise(
-    average_demand = mean(rented_bike_count),
-    .groups = "drop"
-  )
-```
-
-```{r}
-#| label: hourly-demand-chart
-#| fig-alt: "Líneas de demanda promedio por hora para cada estación."
-ggplot(
-  hourly_demand,
-  aes(x = hour, y = average_demand, color = season)
-) +
-  geom_line(linewidth = 1) +
-  scale_color_viridis_d(end = 0.85) +
-  scale_x_continuous(breaks = seq(0, 23, 3)) +
-  labs(
-    title = "La demanda cambia según la hora y la estación",
-    x = "Hora",
-    y = "Bicicletas alquiladas en promedio",
-    color = "Estación"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold"),
-    legend.position = "bottom"
-  )
-```
-
-## Definir datos sin fuga de información
-
-Los cierres se excluyen porque sus ceros representan servicio no disponible. Se eliminan la fecha cruda y el indicador redundante de fin de semana; se conserva el día de la semana.
-
-```{r}
-#| label: modeling-data
-modeling_data <- bikes |>
-  filter(functioning_day == "Yes") |>
-  select(-functioning_day, -is_weekend)
-
-set.seed(2026)
-
-bike_split <- initial_time_split(modeling_data, prop = 0.8)
-training_data <- training(bike_split)
-testing_data <- testing(bike_split)
-resamples <- vfold_cv(training_data, v = 3)
-
-tibble(
-  particion = c("Entrenamiento y ajuste", "Prueba final"),
-  observaciones = c(nrow(training_data), nrow(testing_data)),
-  primera_fecha = c(min(training_data$date), min(testing_data$date)),
-  ultima_fecha = c(max(training_data$date), max(testing_data$date))
+forest_spec <- rand_forest(
+  mtry = tune(), min_n = tune(), trees = 300
 ) |>
-  kable()
+  set_engine("ranger", importance = "permutation") |>
+  set_mode("regression")
+
+workflow() |>
+  add_recipe(recipe) |>
+  add_model(forest_spec)
 ```
 
-## Línea base de la media
+## Resultados finales
 
 ```{r}
-#| label: baseline-model
-baseline_predictions <- testing_data |>
-  transmute(
-    rented_bike_count,
-    .pred = mean(training_data$rented_bike_count)
-  )
-```
-
-## Receta de preprocesamiento
-
-La fecha no entra en la fórmula. Los niveles categóricos se tratan antes de crear indicadores, se eliminan columnas sin variación y la normalización se estima solo en cada fold.
-
-```{r}
-#| label: preprocessing-recipe
-bike_recipe <- recipe(
-  rented_bike_count ~
-    hour +
-    temperature_c +
-    humidity_pct +
-    wind_speed_ms +
-    visibility_10m +
-    dew_point_c +
-    solar_radiation_mj_m2 +
-    rainfall_mm +
-    snowfall_cm +
-    season +
-    holiday +
-    weekday,
-  data = training_data
-) |>
-  step_unknown(all_nominal_predictors()) |>
-  step_dummy(all_nominal_predictors(), one_hot = FALSE) |>
-  step_zv(all_predictors()) |>
-  step_normalize(all_numeric_predictors())
-```
-
-## Regresión lineal
-
-```{r}
-#| label: linear-model
-linear_workflow <- workflow() |>
-  add_recipe(bike_recipe) |>
-  add_model(
-    linear_reg() |>
-      set_engine("lm")
-  )
-
-linear_fit <- fit(linear_workflow, data = training_data)
-
-linear_predictions <- bind_cols(
-  testing_data |> select(rented_bike_count),
-  predict(linear_fit, new_data = testing_data)
-)
-```
-
-## Elastic Net
-
-```{r}
-#| label: elastic-net-model
-elastic_workflow <- workflow() |>
-  add_recipe(bike_recipe) |>
-  add_model(
-    linear_reg(
-      penalty = tune(),
-      mixture = tune()
-    ) |>
-      set_engine("glmnet")
-  )
-
-elastic_grid <- grid_space_filling(
-  penalty(range = c(-5, 1)),
-  mixture(),
-  size = 6
-)
-
-elastic_results <- tune_grid(
-  elastic_workflow,
-  resamples = resamples,
-  grid = elastic_grid,
-  metrics = metric_set(rmse, mae, rsq_trad)
-)
-
-best_elastic <- select_best(elastic_results, metric = "rmse")
-best_elastic |> kable(digits = 5)
-
-elastic_fit <- elastic_workflow |>
-  finalize_workflow(best_elastic) |>
-  fit(data = training_data)
-
-elastic_predictions <- bind_cols(
-  testing_data |> select(rented_bike_count),
-  predict(elastic_fit, new_data = testing_data)
-)
-```
-
-## Random forest
-
-```{r}
-#| label: random-forest-model
-forest_workflow <- workflow() |>
-  add_recipe(bike_recipe) |>
-  add_model(
-    rand_forest(
-      mtry = tune(),
-      min_n = tune(),
-      trees = 300
-    ) |>
-      set_engine("ranger", importance = "permutation") |>
-      set_mode("regression")
-  )
-
-forest_grid <- grid_space_filling(
-  mtry(range = c(3L, 12L)),
-  min_n(range = c(5L, 35L)),
-  size = 6
-)
-
-forest_results <- tune_grid(
-  forest_workflow,
-  resamples = resamples,
-  grid = forest_grid,
-  metrics = metric_set(rmse, mae, rsq_trad)
-)
-
-best_forest <- select_best(forest_results, metric = "rmse")
-best_forest |> kable()
-
-forest_fit <- forest_workflow |>
-  finalize_workflow(best_forest) |>
-  fit(data = training_data)
-
-forest_predictions <- bind_cols(
-  testing_data |> select(rented_bike_count),
-  predict(forest_fit, new_data = testing_data)
-)
-```
-
-La superficie de ajuste muestra cómo la complejidad de los árboles y el tamaño mínimo de nodo afectan el error de validación.
-
-```{r}
-#| label: forest-tuning
-#| fig-alt: "Combinaciones de ajuste del random forest coloreadas por RMSE de validación."
-forest_tuning <- forest_results |>
-  collect_metrics() |>
-  filter(.metric == "rmse")
-
-ggplot(
-  forest_tuning,
-  aes(
-    x = mtry,
-    y = min_n,
-    color = mean,
-    size = mean
-  )
-) +
-  geom_point(alpha = 0.9) +
-  scale_color_viridis_c(
-    option = "C",
-    direction = -1
-  ) +
-  scale_size(
-    range = c(3, 7),
-    guide = "none"
-  ) +
-  labs(
-    title = "Superficie de ajuste del random forest",
-    subtitle = "Un RMSE menor indica mejor resultado de validación",
-    x = "Predictores evaluados por división (mtry)",
-    y = "Observaciones mínimas por nodo",
-    color = "RMSE"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold"))
-```
-
-## Rendimiento en la prueba final
-
-```{r}
-#| label: holdout-metrics
-baseline_metrics <- bind_rows(
-  rmse(baseline_predictions, rented_bike_count, .pred),
-  mae(baseline_predictions, rented_bike_count, .pred),
-  rsq_trad(baseline_predictions, rented_bike_count, .pred)
-) |>
-  mutate(model = "Línea base")
-
-linear_metrics <- bind_rows(
-  rmse(linear_predictions, rented_bike_count, .pred),
-  mae(linear_predictions, rented_bike_count, .pred),
-  rsq_trad(linear_predictions, rented_bike_count, .pred)
-) |>
-  mutate(model = "Regresión lineal")
-
-elastic_metrics <- bind_rows(
-  rmse(elastic_predictions, rented_bike_count, .pred),
-  mae(elastic_predictions, rented_bike_count, .pred),
-  rsq_trad(elastic_predictions, rented_bike_count, .pred)
-) |>
-  mutate(model = "Elastic Net")
-
-forest_metrics <- bind_rows(
-  rmse(forest_predictions, rented_bike_count, .pred),
-  mae(forest_predictions, rented_bike_count, .pred),
-  rsq_trad(forest_predictions, rented_bike_count, .pred)
-) |>
-  mutate(model = "Random forest")
-
-holdout_metrics <- bind_rows(
-  baseline_metrics,
-  linear_metrics,
-  elastic_metrics,
-  forest_metrics
-) |>
-  select(model, .metric, .estimate)
-
-metrics_table <- holdout_metrics |>
-  pivot_wider(
-    names_from = .metric,
-    values_from = .estimate
-  ) |>
-  arrange(rmse)
-
-metrics_table |>
-  kable(digits = 2)
-```
-
-RMSE y MAE se mantienen interpretables como bicicletas alquiladas.
-
-## Observado frente a predicho
-
-```{r}
-#| label: observed-predicted
-#| fig-alt: "Gráficos facetados de valores observados y predichos para cuatro modelos."
-prediction_comparison <- bind_rows(
-  baseline_predictions |>
-    mutate(model = "Línea base"),
-  linear_predictions |>
-    mutate(model = "Regresión lineal"),
-  elastic_predictions |>
-    mutate(model = "Elastic Net"),
-  forest_predictions |>
-    mutate(model = "Random forest")
-) |>
-  mutate(
-    model = factor(
-      model,
-      levels = c(
-        "Línea base",
-        "Regresión lineal",
-        "Elastic Net",
-        "Random forest"
-      )
-    )
-  )
-
-ggplot(
-  prediction_comparison,
-  aes(x = rented_bike_count, y = .pred)
-) +
-  geom_abline(
-    slope = 1,
-    intercept = 0,
-    color = "#E76F51",
-    linewidth = 0.8
-  ) +
-  geom_point(alpha = 0.25, color = "#2A9D8F") +
-  facet_wrap(vars(model), ncol = 2) +
-  coord_equal() +
-  labs(
-    title = "Demanda observada y predicha en horas futuras no vistas",
-    x = "Bicicletas observadas",
-    y = "Bicicletas predichas"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold"))
-```
-
-## Importancia de variables
-
-```{r}
-#| label: variable-importance-data
-forest_engine <- extract_fit_engine(forest_fit)
-
-variable_importance <- enframe(
-  forest_engine$variable.importance,
-  name = "variable",
-  value = "importance"
-) |>
-  arrange(desc(importance)) |>
-  slice_head(n = 12)
+#| label: tabla-metricas
+results$metrics |>
+  mutate(across(where(is.numeric), ~ round(.x, 1))) |>
+  kable(caption = "Métricas operativas sobre fechas futuras no vistas")
 ```
 
 ```{r}
-#| label: variable-importance-chart
-#| fig-alt: "Barras horizontales con las variables más importantes del random forest."
-ggplot(
-  variable_importance,
-  aes(x = importance, y = reorder(variable, importance))
-) +
-  geom_col(fill = "#2A9D8F") +
-  labs(
-    title = "Importancia por permutación del random forest",
-    x = "Importancia",
-    y = NULL
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    plot.title = element_text(face = "bold"),
-    panel.grid.major.y = element_blank()
-  )
+#| label: comparacion-modelos
+#| fig-cap: "Un RMSE menor es mejor; la evaluación usa únicamente el holdout futuro."
+plot_model_metrics(results$metrics, "es")
 ```
 
-## Diagnóstico de residuos
+RMSE castiga errores grandes, MAE resume el error absoluto típico, WAPE relaciona el error total con la demanda, bias detecta sobre o subestimación y peak MAE aísla el 10% de mayor demanda en entrenamiento.
 
 ```{r}
-#| label: residual-chart
-#| fig-alt: "Residuos frente a predicciones del random forest en la prueba final."
-forest_diagnostics <- forest_predictions |>
-  mutate(residual = rented_bike_count - .pred)
-
-ggplot(forest_diagnostics, aes(x = .pred, y = residual)) +
-  geom_hline(yintercept = 0, color = "#555555") +
-  geom_point(alpha = 0.35, color = "#2A9D8F") +
-  geom_smooth(se = FALSE, color = "#E76F51") +
-  labs(
-    title = "Residuos del random forest en observaciones no vistas",
-    x = "Bicicletas predichas",
-    y = "Observado menos predicho"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(plot.title = element_text(face = "bold"))
+#| label: serie-holdout
+#| fig-cap: "Demanda observada y modelo ganador durante los últimos siete días."
+plot_holdout_series(results, language = "es")
 ```
 
-## Conclusión
+## Diagnóstico operativo
 
-- El random forest es el mejor modelo final, con RMSE de `r sprintf("%.2f", metrics_table$rmse[metrics_table$model == "Random forest"])`, MAE de `r sprintf("%.2f", metrics_table$mae[metrics_table$model == "Random forest"])` y R² de `r sprintf("%.2f", metrics_table$rsq_trad[metrics_table$model == "Random forest"])`.
-- Frente a la línea base reduce el RMSE en `r sprintf("%.1f", 100 * (metrics_table$rmse[metrics_table$model == "Línea base"] - metrics_table$rmse[metrics_table$model == "Random forest"]) / metrics_table$rmse[metrics_table$model == "Línea base"])`% y el MAE en `r sprintf("%.1f", 100 * (metrics_table$mae[metrics_table$model == "Línea base"] - metrics_table$mae[metrics_table$model == "Random forest"]) / metrics_table$mae[metrics_table$model == "Línea base"])`%.
-- El bosque seleccionado utiliza un valor `mtry` de `r best_forest$mtry[[1]]` y un valor `min_n` de `r best_forest$min_n[[1]]`; Elastic Net se comporta como lasso (`mixture` = `r best_elastic$mixture[[1]]`) con penalización `r format(best_elastic$penalty[[1]], digits = 3, scientific = TRUE)`.
-- Las variables líderes por importancia de permutación son `r paste(variable_importance$variable[1:5], collapse = ", ")`, lo que confirma que la hora y los efectos meteorológicos no lineales concentran la capacidad predictiva.
-- La dispersión de residuos aumenta en periodos de alta demanda. El modelo funciona como referencia para planeación urbana, pero necesita calibración de picos, reentrenamiento continuo y variables por estación para uso operativo.
+```{r}
+#| label: errores-pico
+#| fig-cap: "Los residuales positivos representan subestimación."
+plot_peak_residuals(results, "es")
+```
 
-Consulta la [versión en inglés](../index.qmd).
+```{r}
+#| label: importancia-variables
+#| fig-cap: "La importancia por permutación describe aporte predictivo, no causalidad."
+plot_variable_importance(results$importance, "es")
+```
+
+Temperatura, tendencia, humedad, radiación solar e indicadores de hora pico concentran buena parte de la señal. Son entradas útiles para pronosticar, no palancas causales.
+
+## Del pronóstico a la acción
+
+- Actualizar el pronóstico antes de cada turno con el clima esperado más reciente.
+- Traducir alquileres esperados a metas por estación únicamente al incorporar inventario y flujos de viaje.
+- Añadir un margen pico cuando el costo de quedarse sin bicicletas supere el costo de capacidad ociosa.
+- Monitorear WAPE, sesgo y peak MAE por temporada; reentrenar cuando excedan umbrales acordados.
+- Tratar cierres con una regla explícita de servicio, fuera del modelo de demanda.
+
+Los datos cubren un año y no incluyen estación, capacidad, precios, eventos ni clima pronosticado. El caso demuestra una evaluación sólida, pero todavía no constituye un sistema de rebalanceo productivo. Consulta la [metodología](../docs/methodology.md), [ficha del modelo](../docs/model-card.md) y [diccionario de datos](../docs/data-dictionary.md).
