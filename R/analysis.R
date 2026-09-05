@@ -1,6 +1,7 @@
 suppressWarnings(suppressPackageStartupMessages({
   library(dplyr)
   library(ggplot2)
+  library(ranger)
   library(readr)
   library(tidymodels)
 }))

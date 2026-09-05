@@ -3527,6 +3527,37 @@
       "Maintainer": "Hadley Wickham <hadley@posit.co>",
       "Repository": "CRAN"
     },
+    "ranger": {
+      "Package": "ranger",
+      "Version": "0.18.0",
+      "Source": "Repository",
+      "Priority": null,
+      "Depends": [
+        "R (>= 3.1)"
+      ],
+      "Imports": [
+        "Rcpp (>= 0.11.2)",
+        "Matrix"
+      ],
+      "LinkingTo": [
+        "Rcpp",
+        "RcppEigen"
+      ],
+      "Suggests": [
+        "survival",
+        "testthat"
+      ],
+      "Enhances": [
+        null
+      ],
+      "License": "GPL-3",
+      "License_is_FOSS": null,
+      "License_restricts_use": null,
+      "OS_type": null,
+      "NeedsCompilation": "yes",
+      "Repository": "CRAN",
+      "Type": "source"
+    },
     "rappdirs": {
       "Package": "rappdirs",
       "Version": "0.3.4",
