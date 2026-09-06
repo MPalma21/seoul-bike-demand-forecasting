@@ -4811,6 +4811,37 @@
         "Archs": "x64"
       }
     },
+    "xgboost": {
+      "Source": "CRAN",
+      "Repository": "https://cloud.r-project.org",
+      "description": {
+        "Package": "xgboost",
+        "Type": "Package",
+        "Title": "Extreme Gradient Boosting",
+        "Version": "3.2.1.1",
+        "Date": "2026-03-18",
+        "Authors@R": "c(\n  person(\"Tianqi\", \"Chen\", role = c(\"aut\"),\n         email = \"tianqi.tchen@gmail.com\"),\n  person(\"Tong\", \"He\", role = c(\"aut\"),\n         email = \"hetong007@gmail.com\"),\n  person(\"Michael\", \"Benesty\", role = c(\"aut\"),\n         email = \"michael@benesty.fr\"),\n  person(\"Vadim\", \"Khotilovich\", role = c(\"aut\"),\n         email = \"khotilovich@gmail.com\"),\n  person(\"Yuan\", \"Tang\", role = c(\"aut\"),\n         email = \"terrytangyuan@gmail.com\",\n         comment = c(ORCID = \"0000-0001-5243-233X\")),\n  person(\"Hyunsu\", \"Cho\", role = c(\"aut\"),\n         email = \"chohyu01@cs.washington.edu\"),\n  person(\"Kailong\", \"Chen\", role = c(\"aut\")),\n  person(\"Rory\", \"Mitchell\", role = c(\"aut\")),\n  person(\"Ignacio\", \"Cano\", role = c(\"aut\")),\n  person(\"Tianyi\", \"Zhou\", role = c(\"aut\")),\n  person(\"Mu\", \"Li\", role = c(\"aut\")),\n  person(\"Junyuan\", \"Xie\", role = c(\"aut\")),\n  person(\"Min\", \"Lin\", role = c(\"aut\")),\n  person(\"Yifeng\", \"Geng\", role = c(\"aut\")),\n  person(\"Yutian\", \"Li\", role = c(\"aut\")),\n  person(\"Jiaming\", \"Yuan\", role = c(\"aut\", \"cre\"),\n         email = \"jm.yuan@outlook.com\"),\n  person(\"David\", \"Cortes\", role = c(\"aut\")),\n  person(\"XGBoost contributors\", role = c(\"cph\"),\n         comment = \"base XGBoost implementation\")\n  )",
+        "Maintainer": "Jiaming Yuan <jm.yuan@outlook.com>",
+        "Description": "Extreme Gradient Boosting, which is an efficient implementation\n    of the gradient boosting framework from Chen & Guestrin (2016) <doi:10.1145/2939672.2939785>.\n    This package is its R interface. The package includes efficient linear\n    model solver and tree learning algorithms. The package can automatically\n    do parallel computation on a single machine which could be more than 10\n    times faster than existing gradient boosting packages. It supports\n    various objective functions, including regression, classification and ranking.\n    The package is made to be extensible, so that users are also allowed to define\n    their own objectives easily.",
+        "License": "Apache License (== 2.0) | file LICENSE",
+        "URL": "https://github.com/dmlc/xgboost",
+        "BugReports": "https://github.com/dmlc/xgboost/issues",
+        "NeedsCompilation": "yes",
+        "VignetteBuilder": "knitr",
+        "Suggests": "knitr, rmarkdown, ggplot2 (>= 1.0.1), DiagrammeR (>= 0.9.0),\nDiagrammeRsvg, rsvg, htmlwidgets, Ckmeans.1d.dp (>= 3.3.1), vcd\n(>= 1.3), testthat, igraph (>= 1.0.1), float, titanic,\nRhpcBLASctl, survival",
+        "Depends": "R (>= 4.3.0)",
+        "Imports": "Matrix (>= 1.1-0), methods, data.table (>= 1.9.6), jsonlite\n(>= 1.0)",
+        "RoxygenNote": "7.3.3",
+        "Encoding": "UTF-8",
+        "SystemRequirements": "GNU make, C++17",
+        "Packaged": "2026-03-17 18:34:16 UTC; jiamingy",
+        "Author": "Tianqi Chen [aut],\n  Tong He [aut],\n  Michael Benesty [aut],\n  Vadim Khotilovich [aut],\n  Yuan Tang [aut] (ORCID: <https://orcid.org/0000-0001-5243-233X>),\n  Hyunsu Cho [aut],\n  Kailong Chen [aut],\n  Rory Mitchell [aut],\n  Ignacio Cano [aut],\n  Tianyi Zhou [aut],\n  Mu Li [aut],\n  Junyuan Xie [aut],\n  Min Lin [aut],\n  Yifeng Geng [aut],\n  Yutian Li [aut],\n  Jiaming Yuan [aut, cre],\n  David Cortes [aut],\n  XGBoost contributors [cph] (base XGBoost implementation)",
+        "Repository": "CRAN",
+        "Date/Publication": "2026-03-18 06:10:03 UTC",
+        "Built": "R 4.6.1; x86_64-w64-mingw32; 2026-09-02 02:54:37 UTC; windows",
+        "Archs": "x64"
+      }
+    },
     "xml2": {
       "Source": "CRAN",
       "Repository": "https://cloud.r-project.org",
@@ -4912,43 +4943,43 @@
       "checksum": "662ecf378d290224c6e46257db0861a7"
     },
     "README.md": {
-      "checksum": "a59ee41509cd8a2692fcfc4dd84030f4"
+      "checksum": "b0a363db91c8c901d35596af7b7a9dba"
     },
     "_freeze/es/index/execute-results/html.json": {
-      "checksum": "5706f5531c31222eae63f9ab13a96c2d"
+      "checksum": "f1b217ae169a54d3d6f4f12b75f48b23"
     },
     "_freeze/es/index/figure-html/comparacion-modelos-1.png": {
-      "checksum": "744a66369c22349dbc5ba9c4b4fae22a"
+      "checksum": "0c3023a6d2e06847626032d6838ce3d9"
     },
     "_freeze/es/index/figure-html/errores-pico-1.png": {
-      "checksum": "0e92fd5b6ccd18dff48094023c3d15a7"
+      "checksum": "3671239f983092c55f03ff9eb0898b3b"
     },
     "_freeze/es/index/figure-html/importancia-variables-1.png": {
-      "checksum": "095875b94f2ca013e42a8c3b8594eac6"
+      "checksum": "78e05b607427a93ca821c8e74edb3c8a"
     },
     "_freeze/es/index/figure-html/ritmo-demanda-1.png": {
       "checksum": "773f8169508ae24041bc040da7ad82d9"
     },
     "_freeze/es/index/figure-html/serie-holdout-1.png": {
-      "checksum": "9b09c43c39dc9b929cd519373a81b35a"
+      "checksum": "2f47c81009278258d35e2fac61fce461"
     },
     "_freeze/index/execute-results/html.json": {
-      "checksum": "828ea1800c5a65c35e67721b623c144b"
+      "checksum": "674cc2626701ecdc9a84541d8b66c9a1"
     },
     "_freeze/index/figure-html/demand-rhythm-1.png": {
       "checksum": "c5571d81422ca071dbf0ca2720d87584"
     },
     "_freeze/index/figure-html/feature-importance-1.png": {
-      "checksum": "8b9be00b579acbbd7dde1f8f9c579ab0"
+      "checksum": "5b18622a89f3b41b418d295ff248a0d4"
     },
     "_freeze/index/figure-html/holdout-trace-1.png": {
-      "checksum": "dab41351def6cc1ef983306962bc5823"
+      "checksum": "59286a80fb0ca44fd0e5a9d53b40729e"
     },
     "_freeze/index/figure-html/model-comparison-1.png": {
-      "checksum": "c80f29088dc34e162d89ee050830b776"
+      "checksum": "ab90ffe03adb6d5b266dce82975e1a64"
     },
     "_freeze/index/figure-html/peak-errors-1.png": {
-      "checksum": "be10d94d32d0616df0957e42f2695498"
+      "checksum": "50d6fa95258205f30bd65f7346fad052"
     },
     "_freeze/site_libs/clipboard/clipboard.min.js": {
       "checksum": "722242f7b6e0fa3b8d25070388a5c826"
@@ -4978,19 +5009,19 @@
       "checksum": "0843cd31582427c0b02ad58b414830b1"
     },
     "docs/methodology.md": {
-      "checksum": "a68506aef6fea11f4b7e2eec47ca0321"
+      "checksum": "26ddca6c52612a9f132737124a02c1d3"
     },
     "docs/model-card.md": {
-      "checksum": "ccb73b2cce59aef3c2d417827705e205"
+      "checksum": "ae6580a2cb0e899141ef945732b03813"
     },
     "es/index.qmd": {
-      "checksum": "dbff70fadb3e6ed48c788e53860b2953"
+      "checksum": "79d3d2f05e4f95eb1792e1abb3eb8f7a"
     },
     "index.qmd": {
-      "checksum": "701f21ed18651de0969068a2964ea2a1"
+      "checksum": "2c2a6a5c0b4fd770c896ec05ed48354d"
     },
     "renv.lock": {
-      "checksum": "aee46ed74e4a7dcf573efd6eb74b621d"
+      "checksum": "f5b0b8de4c217f95513bd6c0e8b2f618"
     }
   },
   "users": null

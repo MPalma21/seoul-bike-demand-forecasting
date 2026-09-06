@@ -8,15 +8,16 @@ Estimate hourly rentals on operating days to support capacity planning and event
 
 1. Sort observations by date and hour.
 2. Reserve the latest 20% of complete dates for final evaluation.
-3. Tune Elastic Net and random forest on four expanding windows inside the training period.
+3. Tune Elastic Net, random forest, and XGBoost on four expanding windows inside the training period.
 4. Place a one-day gap before each 28-day validation window.
-5. Fit finalized workflows on all pre-holdout observations and evaluate once on the future holdout.
+5. Estimate a linear XGBoost calibration from out-of-sample validation predictions.
+6. Fit finalized workflows on all pre-holdout observations and evaluate once on the future holdout.
 
 This design mirrors deployment more closely than random cross-validation. Because the dataset contains observed rather than forecast weather, reported performance is conditional on weather inputs being available at prediction time.
 
 ## Features and preprocessing
 
-The model uses hour, weekday, month, season, holiday, weekend, elapsed day, temperature, humidity, wind, visibility, dew point, solar radiation, rainfall, and snowfall. Categorical predictors receive unknown/novel handling and dummy encoding. Zero-variance and linearly dependent columns are removed; numeric predictors are normalized.
+The model uses hour, weekday, month, season, holiday, weekend, elapsed day, temperature, humidity, wind, visibility, dew point, solar radiation, rainfall, and snowfall. Derived predictors encode the daily and annual cycles, temperature-humidity interaction, daylight, rain, and snow events. Categorical predictors receive unknown/novel handling and dummy encoding. Zero-variance and linearly dependent columns are removed; numeric predictors are normalized.
 
 ## Candidates
 
@@ -26,8 +27,9 @@ The model uses hour, weekday, month, season, holiday, weekend, elapsed day, temp
 | Linear regression | Transparent additive reference |
 | Elastic Net | Regularized linear alternative |
 | Random forest | Nonlinear interactions and thresholds |
+| Calibrated XGBoost | Boosted nonlinear model with out-of-sample level correction |
 
-Tuning minimizes resampled RMSE. The final table reports RMSE, MAE, traditional R², WAPE, signed bias, and MAE on observations above the training-set 90th percentile.
+Tuning minimizes resampled RMSE. XGBoost calibration is learned from the same expanding-window out-of-sample predictions and never sees the final holdout. The final table reports RMSE, MAE, traditional R², WAPE, signed bias, and MAE on observations above the training-set 90th percentile.
 
 ## Reproducibility
 

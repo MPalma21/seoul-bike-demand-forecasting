@@ -24,7 +24,7 @@ UCI source → validated snapshot → calendar features → future holdout
 future holdout + finalized models → operational metrics → diagnostics → site
 ```
 
-Candidates: calendar baseline, linear regression, Elastic Net, and random forest. The interactive narrative reports the current winning model and interprets remaining peak-hour risk.
+Candidates: calendar baseline, linear regression, Elastic Net, random forest, and calibrated XGBoost. The boosting model is tuned and calibrated only with expanding out-of-sample windows; the interactive narrative reports the current winner and interprets remaining peak-hour risk.
 
 ## Reproduce locally
 
